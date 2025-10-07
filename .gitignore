@@ -4,3 +4,4 @@ venv
 users.json
 users_campus.json
 .env
+sent_menus.json

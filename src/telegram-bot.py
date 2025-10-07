@@ -157,8 +157,8 @@ async def get_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def __get_lunch(campus="GOIABEIRAS"):
     menu = scrape_menu(campus)
-
-    if 'Almoço' not in menu:
+    print(menu)
+    if 'Almoço' not in menu and 'ALMOÇO' not in menu:
         return None
     
     lunch_menu = menu.split('Jantar')[0].strip()
