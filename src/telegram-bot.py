@@ -4,10 +4,12 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from scraper import get_menu as scrape_menu
 import json
 import os
+from dotenv import load_dotenv
 from datetime import time, datetime
 
 USERS_FILE = "users.json"
 SENT_MENUS_FILE = "sent_menus.json"
+USERS_CAMPUS_FILE = "users_campus.json"
 
 def load_users():
     if os.path.exists(USERS_FILE):
@@ -15,12 +17,46 @@ def load_users():
             return json.load(f)
     return []
 
+def load_users_campus():
+    if os.path.exists(USERS_CAMPUS_FILE):
+        with open(USERS_CAMPUS_FILE, 'r') as f:
+            return json.load(f)
+    return []
+
+def save_users_campus(users_campus):
+    with open(USERS_CAMPUS_FILE, 'w') as f:
+        json.dump(users_campus, f)
+
+def get_user_campus(chat_id):
+    users_campus = load_users_campus()
+    for user in users_campus:
+        if user.get("chat_id") == chat_id:
+            return user.get("campus", "GOIABEIRAS")
+    return "GOIABEIRAS"
+
+def set_user_campus(chat_id, campus):
+    users_campus = load_users_campus()
+    
+    # Find existing user and update
+    for user in users_campus:
+        if user.get("chat_id") == chat_id:
+            user["campus"] = campus
+            save_users_campus(users_campus)
+            return
+    
+    # Add new user if not found
+    users_campus.append({"chat_id": chat_id, "campus": campus})
+    save_users_campus(users_campus)
+
 def save_user(chat_id):
     users = load_users()
     if chat_id not in users:
         users.append(chat_id)
         with open(USERS_FILE, 'w') as f:
             json.dump(users, f)
+
+def change_user_campus_to_alegre(chat_id):
+    set_user_campus(chat_id, "ALEGRE")
 
 def load_sent_menus():
     if os.path.exists(SENT_MENUS_FILE):
@@ -58,6 +94,31 @@ async def toggle_notifications(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await update.message.reply_text(message)
 
+async def set_campus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    
+    if not context.args or len(context.args) == 0:
+        current_campus = get_user_campus(chat_id)
+        await update.message.reply_text(
+            f"Current campus: {current_campus}\n\n"
+            "Usage: /setcamp <campus>\n"
+            "Available campuses: GOIABEIRAS, ALEGRE"
+        )
+        return
+    
+    campus = context.args[0].upper()
+    
+    if campus not in ["GOIABEIRAS", "ALEGRE"]:
+        await update.message.reply_text(
+            "Invalid campus! Available options:\n"
+            "- GOIABEIRAS\n"
+            "- ALEGRE"
+        )
+        return
+    
+    set_user_campus(chat_id, campus)
+    await update.message.reply_text(f"Campus set to {campus}! 🎓")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         "Welcome to Cardapio RU Ufes Bot!\n\n"
@@ -66,6 +127,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/almoco - Get today's lunch menu\n"
         "/janta - Get today's dinner menu\n"
         "/notify - Toggle daily notifications\n"
+        "/setcamp (GOIABEIRAS, ALEGRE) - Set R.U campus (GOIABEIRAS by default)\n"
         "/help - Show this help message"
     )
     await update.message.reply_text(welcome_message)
@@ -77,6 +139,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/almoco - Get today's lunch menu\n"
         "/janta - Get today's dinner menu\n"
         "/notify - Toggle daily notifications (ON by default)\n"
+        "/setcamp (GOIABEIRAS, ALEGRE) - Set R.U campus (GOIABEIRAS by default)\n"
         "/help - Show this help message\n\n"
         "You can also just type 'menu' and I'll understand!"
     )
@@ -84,15 +147,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_chat.id)
+    campus = get_user_campus(update.effective_chat.id)
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
-    menu = scrape_menu()
+    menu = scrape_menu(campus)
     
-    await update.message.reply_text(menu)
+    await update.message.reply_text(menu, parse_mode='Markdown')
 
-def __get_lunch():
-    menu = scrape_menu()
+def __get_lunch(campus="GOIABEIRAS"):
+    menu = scrape_menu(campus)
 
     if 'Almoço' not in menu:
         return None
@@ -102,18 +166,19 @@ def __get_lunch():
 
 async def get_lunch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_chat.id)
+    campus = get_user_campus(update.effective_chat.id)
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
-    lunch_menu = __get_lunch()
+    lunch_menu = __get_lunch(campus)
     
     if lunch_menu is None:
         await update.message.reply_text("Lunch menu not available for today yet.")
     else:
-        await update.message.reply_text(lunch_menu)
+        await update.message.reply_text(lunch_menu, parse_mode='Markdown')
 
-def __get_dinner():
-    menu = scrape_menu()
+def __get_dinner(campus="GOIABEIRAS"):
+    menu = scrape_menu(campus)
 
     if 'Jantar' not in menu:
         return None
@@ -123,15 +188,16 @@ def __get_dinner():
 
 async def get_dinner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user(update.effective_chat.id)
+    campus = get_user_campus(update.effective_chat.id)
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     
-    dinner_menu = __get_dinner()
+    dinner_menu = __get_dinner(campus)
     
     if dinner_menu is None:
         await update.message.reply_text("Dinner menu not available for today yet.")
     else:
-        await update.message.reply_text(dinner_menu)
+        await update.message.reply_text(dinner_menu, parse_mode='Markdown')
 
 async def check_and_send_lunch(context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
@@ -149,18 +215,19 @@ async def check_and_send_lunch(context: ContextTypes.DEFAULT_TYPE):
     if sent_data["lunch_sent"]:
         return
     
-    lunch_menu = __get_lunch()
-    if lunch_menu is None:
-        print(f"[{now.strftime('%H:%M')}] Lunch menu not available yet")
-        return
-    
     users = load_users()
-    message = f"🍽️ Bom dia estudante! Olha aqui o seu delicioso almoço:\n\n{lunch_menu}"
-    
     sent_count = 0
+    
     for chat_id in users:
         try:
-            await context.bot.send_message(chat_id=chat_id, text=message)
+            campus = get_user_campus(chat_id)
+            lunch_menu = __get_lunch(campus)
+            
+            if lunch_menu is None:
+                continue
+            
+            message = f"🍽️ Bom dia estudante! Olha aqui o seu delicioso almoço ({campus}):\n\n{lunch_menu}"
+            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
             sent_count += 1
         except Exception as e:
             print(f"Failed to send lunch to {chat_id}: {e}")
@@ -186,18 +253,19 @@ async def check_and_send_dinner(context: ContextTypes.DEFAULT_TYPE):
     if sent_data["dinner_sent"]:
         return
     
-    dinner_menu = __get_dinner()
-    if dinner_menu is None:
-        print(f"[{now.strftime('%H:%M')}] Dinner menu not available yet")
-        return
-    
     users = load_users()
-    message = f"Boa tarde estudante! Da uma olhada na sua jantinha:\n\n{dinner_menu}"
-    
     sent_count = 0
+    
     for chat_id in users:
         try:
-            await context.bot.send_message(chat_id=chat_id, text=message)
+            campus = get_user_campus(chat_id)
+            dinner_menu = __get_dinner(campus)
+            
+            if dinner_menu is None:
+                continue
+            
+            message = f"Boa tarde estudante! Da uma olhada na sua jantinha ({campus}):\n\n{dinner_menu}"
+            await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
             sent_count += 1
         except Exception as e:
             print(f"Failed to send dinner to {chat_id}: {e}")
@@ -228,6 +296,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 def main():
+    load_dotenv()
     BOT_TOKEN = os.getenv('BOT_TOKEN')
     
     if not BOT_TOKEN:
@@ -242,6 +311,7 @@ def main():
     application.add_handler(CommandHandler("almoco", get_lunch))
     application.add_handler(CommandHandler("janta", get_dinner))
     application.add_handler(CommandHandler("notify", toggle_notifications))
+    application.add_handler(CommandHandler("setcamp", set_campus))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     job_queue = application.job_queue
