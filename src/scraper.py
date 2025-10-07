@@ -120,12 +120,8 @@ def campus_to_menu(campus):
 
 def get_menu(campus):
     url = campus_to_menu(campus)
-    # ssl
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
 
-    html = urlopen(url, context=context).read()
+    html = urlopen(url).read()
 
     soup = BeautifulSoup(html, "html.parser")
 
